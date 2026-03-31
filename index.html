@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#C9A84C">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Inventory management for Play Studio Bhutan">
+  <title>Play Studio Inventory</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- ========== HEADER ========== -->
+  <header class="app-header" id="app-header" style="display:none">
+    <div class="logo">
+      <div class="logo-icon">PS</div>
+      <div class="logo-text">Play <span>Studio</span></div>
+    </div>
+    <div class="header-actions">
+      <button class="header-btn" onclick="showSettings()" title="Settings">&#9881;</button>
+      <button class="header-btn" onclick="logout()" title="Logout">&#9211;</button>
+    </div>
+  </header>
+
+  <!-- ========== TOAST CONTAINER ========== -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- ========== MAIN CONTENT ========== -->
+  <main class="app-content">
+
+    <!-- ===== LOGIN SCREEN ===== -->
+    <section class="screen login-screen active" id="screen-login">
+      <div class="login-logo">PS</div>
+      <h1 class="login-title">Play Studio Bhutan</h1>
+      <p class="login-subtitle">Inventory Management System</p>
+      <div class="login-form">
+        <div class="form-group">
+          <label>Staff Name</label>
+          <select class="form-control" id="login-user-select">
+            <option value="">Select your name...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>PIN</label>
+          <div class="pin-input-group">
+            <input type="password" class="pin-digit" maxlength="1" inputmode="numeric" pattern="[0-9]">
+            <input type="password" class="pin-digit" maxlength="1" inputmode="numeric" pattern="[0-9]">
+            <input type="password" class="pin-digit" maxlength="1" inputmode="numeric" pattern="[0-9]">
+            <input type="password" class="pin-digit" maxlength="1" inputmode="numeric" pattern="[0-9]">
+          </div>
+        </div>
+        <button class="btn btn-primary btn-block" id="login-btn" onclick="handleLogin()">Sign In</button>
+        <p style="text-align:center; margin-top:16px">
+          <a href="#" onclick="showSettings(); return false" style="color:var(--gold); font-size:13px; text-decoration:none">&#9881; Configure API URL</a>
+        </p>
+      </div>
+    </section>
+
+    <!-- ===== DASHBOARD ===== -->
+    <section class="screen" id="screen-dashboard">
+      <div class="screen-title">&#127968; Dashboard</div>
+      <div id="dashboard-content">
+        <div class="loading-overlay"><span class="spinner"></span> Loading...</div>
+      </div>
+    </section>
+
+    <!-- ===== INVENTORY LIST ===== -->
+    <section class="screen" id="screen-inventory">
+      <div class="screen-title">&#128230; Inventory</div>
+      <div class="search-bar">
+        <input type="text" class="form-control" id="inventory-search" placeholder="Search items..." oninput="searchInventory()">
+      </div>
+      <div class="filter-bar">
+        <button class="filter-chip" data-type="category" data-value="Audio" onclick="filterInventory('category','Audio')">&#127911; Audio</button>
+        <button class="filter-chip" data-type="category" data-value="Lighting" onclick="filterInventory('category','Lighting')">&#128161; Lighting</button>
+        <button class="filter-chip" data-type="category" data-value="Cables & Accessories" onclick="filterInventory('category','Cables & Accessories')">&#128268; Cables</button>
+        <button class="filter-chip" data-type="category" data-value="Microphones & Stands" onclick="filterInventory('category','Microphones & Stands')">&#127908; Mics</button>
+        <button class="filter-chip" data-type="condition" data-value="Available" onclick="filterInventory('condition','Available')">Available</button>
+        <button class="filter-chip" data-type="condition" data-value="Checked Out" onclick="filterInventory('condition','Checked Out')">Checked Out</button>
+        <button class="filter-chip" data-type="condition" data-value="Under Repair" onclick="filterInventory('condition','Under Repair')">Under Repair</button>
+      </div>
+      <div id="inventory-list">
+        <div class="loading-overlay"><span class="spinner"></span> Loading...</div>
+      </div>
+    </section>
+
+    <!-- ===== ITEM DETAIL ===== -->
+    <section class="screen" id="screen-item-detail">
+      <div class="screen-title">
+        <button class="back-btn" onclick="navigate('inventory')">&#8592;</button>
+        Item Details
+      </div>
+      <div id="item-detail-content">
+        <div class="loading-overlay"><span class="spinner"></span> Loading...</div>
+      </div>
+    </section>
+
+    <!-- ===== SCAN ===== -->
+    <section class="screen" id="screen-scan">
+      <div class="screen-title">
+        <button class="back-btn" onclick="Scanner.stop(); navigate('dashboard')">&#8592;</button>
+        Scan Barcode
+      </div>
+      <div class="scanner-container">
+        <div id="scanner-reader"></div>
+        <div class="scanner-fallback">
+          <div class="form-group">
+            <label>Manual Entry</label>
+            <div class="search-bar">
+              <input type="text" class="form-control" id="scanner-manual-input" placeholder="Type barcode (e.g. PSB-2026-0001)">
+              <button class="btn btn-primary" onclick="Scanner.manualLookup()">Go</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== CHECKOUT FORM ===== -->
+    <section class="screen" id="screen-checkout">
+      <div class="screen-title">
+        <button class="back-btn" onclick="navigate('inventory')">&#8592;</button>
+        Check Out Item
+      </div>
+      <div id="checkout-form-content"></div>
+    </section>
+
+    <!-- ===== CHECK IN ===== -->
+    <section class="screen" id="screen-checkin">
+      <div class="screen-title">
+        <button class="back-btn" onclick="navigate('dashboard')">&#8592;</button>
+        Check In Item
+      </div>
+      <div id="checkin-content"></div>
+    </section>
+
+    <!-- ===== MAINTENANCE FORM ===== -->
+    <section class="screen" id="screen-maintenance">
+      <div class="screen-title">
+        <button class="back-btn" onclick="navigate('inventory')">&#8592;</button>
+        Log Maintenance
+      </div>
+      <div id="maintenance-form-content"></div>
+    </section>
+
+    <!-- ===== ADD / EDIT ITEM ===== -->
+    <section class="screen" id="screen-add-item">
+      <div class="screen-title">
+        <button class="back-btn" onclick="navigate('inventory')">&#8592;</button>
+        <span id="add-item-title">Add New Item</span>
+      </div>
+      <div id="add-item-content"></div>
+    </section>
+
+    <!-- ===== BARCODE PRINT ===== -->
+    <section class="screen" id="screen-barcode-print">
+      <div class="screen-title no-print">
+        <button class="back-btn" onclick="navigate('inventory')">&#8592;</button>
+        Barcode Labels
+      </div>
+      <div id="barcode-print-content"></div>
+    </section>
+
+    <!-- ===== REPORTS ===== -->
+    <section class="screen" id="screen-reports">
+      <div class="screen-title">&#128202; Reports & Export</div>
+      <div id="reports-content"></div>
+    </section>
+
+    <!-- ===== USER MANAGEMENT ===== -->
+    <section class="screen" id="screen-users">
+      <div class="screen-title">
+        <button class="back-btn" onclick="navigate('dashboard')">&#8592;</button>
+        User Management
+      </div>
+      <div id="users-content"></div>
+    </section>
+
+  </main>
+
+  <!-- ========== BOTTOM NAVIGATION ========== -->
+  <nav class="bottom-nav" id="bottom-nav" style="display:none">
+    <button class="nav-item active" data-screen="dashboard" onclick="navigate('dashboard')">
+      <span class="nav-icon">&#127968;</span>
+      Home
+    </button>
+    <button class="nav-item" data-screen="scan" onclick="navigate('scan')">
+      <span class="nav-icon">&#128247;</span>
+      Scan
+    </button>
+    <button class="nav-item" data-screen="inventory" onclick="navigate('inventory')">
+      <span class="nav-icon">&#128230;</span>
+      Inventory
+    </button>
+    <button class="nav-item" data-screen="reports" onclick="navigate(AppState.currentUser?.role === 'admin' ? 'reports' : 'checkin')">
+      <span class="nav-icon">&#128202;</span>
+      <span id="nav-reports-label">Reports</span>
+    </button>
+  </nav>
+
+  <!-- ========== SETTINGS MODAL ========== -->
+  <div class="modal-overlay" id="settings-modal">
+    <div class="modal">
+      <h3>&#9881; Settings</h3>
+      <div class="form-group">
+        <label>Google Apps Script URL</label>
+        <input type="url" class="form-control" id="settings-api-url" placeholder="https://script.google.com/macros/s/.../exec">
+        <p style="font-size:12px; color:var(--text-secondary); margin-top:6px">
+          Paste the deployed Web App URL from your Google Apps Script project.
+        </p>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="saveSettings()">Save</button>
+        <button class="btn btn-secondary" onclick="hideSettings()">Cancel</button>
+      </div>
+      <hr style="border-color:var(--border); margin:16px 0">
+      <button class="btn btn-secondary btn-block btn-sm" onclick="initializeRemoteSheets()">
+        &#128736; Initialize Google Sheets
+      </button>
+      <p style="font-size:11px; color:var(--text-secondary); margin-top:6px">
+        Creates sheet tabs and default users (Admin PIN: 1234, Staff PIN: 5678)
+      </p>
+    </div>
+  </div>
+
+  <!-- ========== CDN LIBRARIES ========== -->
+  <!-- Barcode Scanner -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <!-- Barcode Generator -->
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+  <!-- PDF Export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
+  <!-- Excel Export -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+  <!-- ========== APP SCRIPTS ========== -->
+  <script src="js/api.js"></script>
+  <script src="js/barcode.js"></script>
+  <script src="js/scanner.js"></script>
+  <script src="js/export.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>
