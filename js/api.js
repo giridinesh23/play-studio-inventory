@@ -94,21 +94,36 @@ const API = (() => {
     return data;
   }
 
+  async function getItemsWithAvailability(filters = {}) {
+    const data = await request('getItemsWithAvailability', filters);
+    setCache('getItemsWithAvailability', data);
+    return data;
+  }
+
   async function getItem(idOrBarcode) {
     const param = idOrBarcode.startsWith('PSB-') ? { barcode: idOrBarcode } : { id: idOrBarcode };
     return await request('getItem', param);
   }
 
   async function addItem(itemData) {
+    itemData.role = getCurrentUserRole();
     return await request('addItem', itemData);
   }
 
   async function updateItem(itemData) {
+    itemData.role = getCurrentUserRole();
     return await request('updateItem', itemData);
   }
 
   async function deleteItem(id) {
-    return await request('deleteItem', { id });
+    return await request('deleteItem', { id, role: getCurrentUserRole() });
+  }
+
+  function getCurrentUserRole() {
+    try {
+      const user = JSON.parse(localStorage.getItem('ps_user') || 'null');
+      return user?.role || 'staff';
+    } catch (e) { return 'staff'; }
   }
 
   async function getNextBarcode() {
@@ -135,7 +150,7 @@ const API = (() => {
     return await request('updateUser', userData);
   }
 
-  // ============ Checkouts ============
+  // ============ Legacy Checkouts ============
 
   async function getCheckouts(filters = {}) {
     return await request('getCheckouts', filters);
@@ -147,6 +162,24 @@ const API = (() => {
 
   async function returnItem(returnData) {
     return await request('returnItem', returnData);
+  }
+
+  // ============ Event Checkouts ============
+
+  async function getEventCheckouts(filters = {}) {
+    return await request('getEventCheckouts', filters);
+  }
+
+  async function getEventDetail(params) {
+    return await request('getEventDetail', params);
+  }
+
+  async function addEventCheckout(checkoutData) {
+    return await request('addEventCheckout', checkoutData);
+  }
+
+  async function checkinEvent(checkinData) {
+    return await request('checkinEvent', checkinData);
   }
 
   // ============ Maintenance ============
@@ -177,10 +210,21 @@ const API = (() => {
     return await request('initializeSheets');
   }
 
+  async function checkInitialized() {
+    return await request('checkInitialized');
+  }
+
+  // ============ PIN Management ============
+
+  async function updatePin(data) {
+    return await request('updatePin', data);
+  }
+
   return {
     setBaseUrl,
     getBaseUrl,
     getItems,
+    getItemsWithAvailability,
     getItem,
     addItem,
     updateItem,
@@ -193,10 +237,16 @@ const API = (() => {
     getCheckouts,
     addCheckout,
     returnItem,
+    getEventCheckouts,
+    getEventDetail,
+    addEventCheckout,
+    checkinEvent,
     getMaintenanceLogs,
     addMaintenanceLog,
     resolveMaintenance,
     getDashboardStats,
-    initializeSheets
+    initializeSheets,
+    checkInitialized,
+    updatePin
   };
 })();

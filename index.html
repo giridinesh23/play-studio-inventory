@@ -20,6 +20,7 @@
       <div class="logo-text">Play <span>Studio</span></div>
     </div>
     <div class="header-actions">
+      <span id="header-user-info" style="font-size:11px; color:var(--text-secondary); margin-right:4px"></span>
       <button class="header-btn" onclick="showSettings()" title="Settings">&#9881;</button>
       <button class="header-btn" onclick="logout()" title="Logout">&#9211;</button>
     </div>
@@ -74,13 +75,13 @@
         <input type="text" class="form-control" id="inventory-search" placeholder="Search items..." oninput="searchInventory()">
       </div>
       <div class="filter-bar">
+        <button class="filter-chip" data-type="status" data-value="available" onclick="filterInventory('status','available')">Available</button>
+        <button class="filter-chip" data-type="status" data-value="out" onclick="filterInventory('status','out')">Out for Event</button>
+        <button class="filter-chip" data-type="status" data-value="damaged" onclick="filterInventory('status','damaged')">Damaged</button>
         <button class="filter-chip" data-type="category" data-value="Audio" onclick="filterInventory('category','Audio')">&#127911; Audio</button>
         <button class="filter-chip" data-type="category" data-value="Lighting" onclick="filterInventory('category','Lighting')">&#128161; Lighting</button>
         <button class="filter-chip" data-type="category" data-value="Cables & Accessories" onclick="filterInventory('category','Cables & Accessories')">&#128268; Cables</button>
         <button class="filter-chip" data-type="category" data-value="Microphones & Stands" onclick="filterInventory('category','Microphones & Stands')">&#127908; Mics</button>
-        <button class="filter-chip" data-type="condition" data-value="Available" onclick="filterInventory('condition','Available')">Available</button>
-        <button class="filter-chip" data-type="condition" data-value="Checked Out" onclick="filterInventory('condition','Checked Out')">Checked Out</button>
-        <button class="filter-chip" data-type="condition" data-value="Under Repair" onclick="filterInventory('condition','Under Repair')">Under Repair</button>
       </div>
       <div id="inventory-list">
         <div class="loading-overlay"><span class="spinner"></span> Loading...</div>
@@ -178,6 +179,59 @@
       <div id="users-content"></div>
     </section>
 
+    <!-- ===== CHANGE PIN (SELF-SERVICE) ===== -->
+    <section class="screen" id="screen-change-pin">
+      <div class="screen-title">
+        <button class="back-btn" onclick="navigate('dashboard')">&#8592;</button>
+        Change PIN
+      </div>
+      <div id="change-pin-content"></div>
+    </section>
+
+    <!-- ===== EVENTS / CHECKOUTS LIST ===== -->
+    <section class="screen" id="screen-events">
+      <div class="screen-title">&#128197; Events / Checkouts</div>
+      <div class="filter-bar" id="events-filter-bar">
+        <button class="filter-chip active" data-value="all" onclick="filterEvents('all')">All</button>
+        <button class="filter-chip" data-value="Active" onclick="filterEvents('Active')">Active</button>
+        <button class="filter-chip" data-value="Partial" onclick="filterEvents('Partial')">Partial</button>
+        <button class="filter-chip" data-value="Returned" onclick="filterEvents('Returned')">Returned</button>
+      </div>
+      <button class="btn btn-primary btn-block" onclick="navigate('new-checkout')" style="margin-bottom:16px">&#10010; New Event Checkout</button>
+      <div id="events-list">
+        <div class="loading-overlay"><span class="spinner"></span> Loading...</div>
+      </div>
+    </section>
+
+    <!-- ===== EVENT DETAIL ===== -->
+    <section class="screen" id="screen-event-detail">
+      <div class="screen-title">
+        <button class="back-btn" onclick="navigate('events')">&#8592;</button>
+        Event Detail
+      </div>
+      <div id="event-detail-content">
+        <div class="loading-overlay"><span class="spinner"></span> Loading...</div>
+      </div>
+    </section>
+
+    <!-- ===== NEW EVENT CHECKOUT ===== -->
+    <section class="screen" id="screen-new-checkout">
+      <div class="screen-title">
+        <button class="back-btn" onclick="navigate('events')">&#8592;</button>
+        New Event Checkout
+      </div>
+      <div id="new-checkout-content"></div>
+    </section>
+
+    <!-- ===== EVENT CHECK-IN ===== -->
+    <section class="screen" id="screen-event-checkin">
+      <div class="screen-title">
+        <button class="back-btn" onclick="navigate('events')">&#8592;</button>
+        Check In Items
+      </div>
+      <div id="event-checkin-content"></div>
+    </section>
+
   </main>
 
   <!-- ========== BOTTOM NAVIGATION ========== -->
@@ -194,9 +248,9 @@
       <span class="nav-icon">&#128230;</span>
       Inventory
     </button>
-    <button class="nav-item" data-screen="reports" onclick="navigate(AppState.currentUser?.role === 'admin' ? 'reports' : 'checkin')">
-      <span class="nav-icon">&#128202;</span>
-      <span id="nav-reports-label">Reports</span>
+    <button class="nav-item" data-screen="events" onclick="navigate('events')">
+      <span class="nav-icon">&#128197;</span>
+      <span>Events</span>
     </button>
   </nav>
 
@@ -215,13 +269,27 @@
         <button class="btn btn-primary" onclick="saveSettings()">Save</button>
         <button class="btn btn-secondary" onclick="hideSettings()">Cancel</button>
       </div>
-      <hr style="border-color:var(--border); margin:16px 0">
-      <button class="btn btn-secondary btn-block btn-sm" onclick="initializeRemoteSheets()">
-        &#128736; Initialize Google Sheets
-      </button>
-      <p style="font-size:11px; color:var(--text-secondary); margin-top:6px">
-        Creates sheet tabs and default users (Admin PIN: 1234, Staff PIN: 5678)
-      </p>
+    </div>
+  </div>
+
+  <!-- ========== CHANGE PIN MODAL (ADMIN) ========== -->
+  <div class="modal-overlay" id="change-pin-modal">
+    <div class="modal">
+      <h3>&#128274; Change PIN</h3>
+      <p style="color:var(--text-secondary); margin-bottom:16px">Changing PIN for: <strong id="cpm-user-name" style="color:var(--text-heading)"></strong></p>
+      <input type="hidden" id="cpm-user-id">
+      <div class="form-group">
+        <label>New PIN (4 digits)</label>
+        <input type="password" class="form-control" id="cpm-new-pin" maxlength="4" inputmode="numeric" placeholder="Enter new PIN">
+      </div>
+      <div class="form-group">
+        <label>Confirm PIN</label>
+        <input type="password" class="form-control" id="cpm-confirm-pin" maxlength="4" inputmode="numeric" placeholder="Re-enter PIN">
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="submitAdminChangePin()">Save</button>
+        <button class="btn btn-secondary" onclick="hideChangePinModal()">Cancel</button>
+      </div>
     </div>
   </div>
 

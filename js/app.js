@@ -14,7 +14,12 @@ const AppState = {
   selectedItem: null,
   editingItem: null,
   editingUser: null,
-  filters: { category: '', condition: '', search: '' }
+  filters: { category: '', condition: '', search: '' },
+  // Event checkout state
+  events: [],
+  currentEvent: null,
+  newCheckoutItems: [],
+  eventsFilter: 'all'
 };
 
 // ============ TOAST NOTIFICATIONS ============
@@ -47,11 +52,17 @@ function navigate(screen, data = null) {
     screen = 'login';
   }
 
-  // Role guard
+  // Strict role guard — admin-only screens
   const adminOnly = ['add-item', 'reports', 'users'];
   if (adminOnly.includes(screen) && AppState.currentUser?.role !== 'admin') {
-    Toast.show('Admin access required', 'error');
+    Toast.show('This section is for administrators only', 'error');
+    navigate('inventory');
     return;
+  }
+
+  // Stop scanner when leaving scan screen
+  if (AppState.currentScreen === 'scan' && screen !== 'scan') {
+    Scanner.stop();
   }
 
   // Hide all screens
@@ -75,6 +86,14 @@ function navigate(screen, data = null) {
   document.getElementById('bottom-nav').style.display = isLogin ? 'none' : 'flex';
   document.getElementById('app-header').style.display = isLogin ? 'none' : 'flex';
   document.querySelector('.app-content').style.marginTop = isLogin ? '0' : '';
+
+  // Update header user info
+  if (!isLogin && AppState.currentUser) {
+    const userInfo = document.getElementById('header-user-info');
+    if (userInfo) {
+      userInfo.textContent = `${AppState.currentUser.name} (${AppState.currentUser.role})`;
+    }
+  }
 
   // Load screen data
   loadScreenData(screen, data);
@@ -115,6 +134,22 @@ async function loadScreenData(screen, data) {
         break;
       case 'users':
         await renderUserManagement();
+        break;
+      case 'change-pin':
+        renderChangePinScreen();
+        break;
+      // Event screens
+      case 'events':
+        await renderEventsList();
+        break;
+      case 'event-detail':
+        if (data?.event_id) await renderEventDetail(data);
+        break;
+      case 'new-checkout':
+        await renderNewCheckoutForm();
+        break;
+      case 'event-checkin':
+        if (data?.event_id) await renderEventCheckin(data);
         break;
     }
   } catch (error) {
@@ -160,6 +195,35 @@ function getStatusBadge(status) {
     'Returned': 'badge-returned',
     'Open': 'badge-active',
     'Resolved': 'badge-resolved'
+  };
+  return `<span class="badge ${map[status] || 'badge-active'}">${status}</span>`;
+}
+
+function getStatusLed(status, eventRef) {
+  const map = {
+    'available': 'led-available',
+    'out': 'led-out',
+    'partial': 'led-partial',
+    'damaged': 'led-damaged',
+    'missing': 'led-missing'
+  };
+  const labels = {
+    'available': 'Available',
+    'out': eventRef ? 'Out \u2014 ' + eventRef : 'Out',
+    'partial': eventRef ? 'Partial \u2014 ' + eventRef : 'Partial',
+    'damaged': 'Damaged',
+    'missing': 'Missing'
+  };
+  const cls = map[status] || 'led-available';
+  const label = labels[status] || 'Available';
+  return `<span class="status-led ${cls}">${label}</span>`;
+}
+
+function getEventStatusBadge(status) {
+  const map = {
+    'Active': 'badge-active',
+    'Returned': 'badge-returned',
+    'Partial': 'badge-partial'
   };
   return `<span class="badge ${map[status] || 'badge-active'}">${status}</span>`;
 }
@@ -285,6 +349,8 @@ async function renderDashboard() {
       alertsHtml += '</div>';
     }
 
+    const isAdmin = AppState.currentUser?.role === 'admin';
+
     container.innerHTML = `
       <div class="summary-grid">
         <div class="summary-card total">
@@ -293,11 +359,11 @@ async function renderDashboard() {
         </div>
         <div class="summary-card checked-out">
           <div class="count">${stats.checkedOut}</div>
-          <div class="label">Checked Out</div>
+          <div class="label">Items Out</div>
         </div>
         <div class="summary-card repair">
-          <div class="count">${stats.underRepair}</div>
-          <div class="label">Under Repair</div>
+          <div class="count">${stats.activeEvents || 0}</div>
+          <div class="label">Active Events</div>
         </div>
         <div class="summary-card overdue">
           <div class="count">${stats.overdue}</div>
@@ -309,27 +375,27 @@ async function renderDashboard() {
 
       <div class="section-title">Quick Actions</div>
       <div class="quick-actions">
+        <button class="quick-action-btn" onclick="navigate('new-checkout')">
+          <span class="action-icon">&#128197;</span>
+          New Checkout
+        </button>
+        <button class="quick-action-btn" onclick="navigate('events')">
+          <span class="action-icon">&#128203;</span>
+          Events
+        </button>
         <button class="quick-action-btn" onclick="navigate('scan')">
           <span class="action-icon">&#128247;</span>
           Scan Item
         </button>
-        ${AppState.currentUser?.role === 'admin' ? `
-        <button class="quick-action-btn" onclick="navigate('add-item')">
-          <span class="action-icon">&#10010;</span>
-          Add Item
+        ${isAdmin ? `
+        <button class="quick-action-btn" onclick="navigate('reports')">
+          <span class="action-icon">&#128202;</span>
+          Reports
         </button>` : `
-        <button class="quick-action-btn" onclick="navigate('checkin')">
-          <span class="action-icon">&#9989;</span>
-          Check In
+        <button class="quick-action-btn" onclick="navigate('change-pin')">
+          <span class="action-icon">&#128274;</span>
+          My PIN
         </button>`}
-        <button class="quick-action-btn" onclick="navigate('inventory')">
-          <span class="action-icon">&#128230;</span>
-          Inventory
-        </button>
-        <button class="quick-action-btn" onclick="navigate('${AppState.currentUser?.role === 'admin' ? 'reports' : 'maintenance'}')">
-          <span class="action-icon">${AppState.currentUser?.role === 'admin' ? '&#128202;' : '&#128295;'}</span>
-          ${AppState.currentUser?.role === 'admin' ? 'Reports' : 'Log Repair'}
-        </button>
       </div>
     `;
   } catch (e) {
@@ -348,7 +414,7 @@ async function renderInventory() {
   list.innerHTML = '<div class="loading-overlay"><span class="spinner"></span> Loading...</div>';
 
   try {
-    const items = await API.getItems(AppState.filters);
+    const items = await API.getItemsWithAvailability(AppState.filters);
     AppState.items = items;
     renderInventoryList(items);
   } catch (e) {
@@ -364,19 +430,26 @@ function renderInventoryList(items) {
     return;
   }
 
-  list.innerHTML = items.map(item => `
-    <div class="item-card" onclick="navigate('item-detail', {id: '${item.id}'})">
-      <div class="item-icon ${getCategoryClass(item.category)}">${getCategoryIcon(item.category)}</div>
-      <div class="item-info">
-        <div class="item-name">${item.name}</div>
-        <div class="item-meta">${item.category} &middot; ${item.barcode}</div>
+  list.innerHTML = items.map(item => {
+    const isDimmed = item.status === 'out' || item.status === 'damaged';
+    const availText = item.availableQty !== undefined
+      ? `${item.availableQty}/${item.quantity || 1} avail`
+      : `Qty: ${item.quantity || 1}`;
+
+    return `
+      <div class="item-card${isDimmed ? ' dimmed' : ''}" onclick="navigate('item-detail', {id: '${item.id}'})">
+        <div class="item-icon ${getCategoryClass(item.category)}">${getCategoryIcon(item.category)}</div>
+        <div class="item-info">
+          <div class="item-name">${item.name}</div>
+          <div class="item-meta">${item.category} &middot; ${item.barcode}</div>
+        </div>
+        <div>
+          ${item.status ? getStatusLed(item.status, item.eventRef) : getConditionBadge(item.condition)}
+          <div class="item-qty">${availText}</div>
+        </div>
       </div>
-      <div>
-        ${getConditionBadge(item.condition)}
-        <div class="item-qty">Qty: ${item.quantity || 1}</div>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 function filterInventory(type, value) {
@@ -384,12 +457,15 @@ function filterInventory(type, value) {
     AppState.filters.category = AppState.filters.category === value ? '' : value;
   } else if (type === 'condition') {
     AppState.filters.condition = AppState.filters.condition === value ? '' : value;
+  } else if (type === 'status') {
+    AppState.filters.status = AppState.filters.status === value ? '' : value;
   }
 
   // Update filter chips
-  document.querySelectorAll('.filter-chip').forEach(chip => {
+  document.querySelectorAll('#screen-inventory .filter-chip').forEach(chip => {
     const isActive = (chip.dataset.type === 'category' && chip.dataset.value === AppState.filters.category) ||
-                     (chip.dataset.type === 'condition' && chip.dataset.value === AppState.filters.condition);
+                     (chip.dataset.type === 'condition' && chip.dataset.value === AppState.filters.condition) ||
+                     (chip.dataset.type === 'status' && chip.dataset.value === AppState.filters.status);
     chip.classList.toggle('active', isActive);
   });
 
@@ -423,11 +499,11 @@ async function renderItemDetail(data) {
 
       <div class="detail-fields">
         <div class="detail-field"><span class="field-label">Barcode</span><span class="field-value">${item.barcode}</span></div>
-        <div class="detail-field"><span class="field-label">Serial Number</span><span class="field-value">${item.serial_number || '—'}</span></div>
-        <div class="detail-field"><span class="field-label">Purchase Date</span><span class="field-value">${item.purchase_date || '—'}</span></div>
-        <div class="detail-field"><span class="field-label">Purchase Cost</span><span class="field-value">${item.purchase_cost ? 'Nu. ' + item.purchase_cost : '—'}</span></div>
+        <div class="detail-field"><span class="field-label">Serial Number</span><span class="field-value">${item.serial_number || '\u2014'}</span></div>
+        <div class="detail-field"><span class="field-label">Purchase Date</span><span class="field-value">${item.purchase_date || '\u2014'}</span></div>
+        <div class="detail-field"><span class="field-label">Purchase Cost</span><span class="field-value">${item.purchase_cost ? 'Nu. ' + item.purchase_cost : '\u2014'}</span></div>
         <div class="detail-field"><span class="field-label">Quantity</span><span class="field-value">${item.quantity || 1}</span></div>
-        <div class="detail-field"><span class="field-label">Notes</span><span class="field-value">${item.notes || '—'}</span></div>
+        <div class="detail-field"><span class="field-label">Notes</span><span class="field-value">${item.notes || '\u2014'}</span></div>
       </div>
 
       <div class="detail-actions">
@@ -469,7 +545,7 @@ function renderCheckoutHistory(checkouts) {
       </div>
       <div class="history-detail">
         Staff: ${c.staff_name}<br>
-        Out: ${c.checkout_date} &middot; Expected: ${c.expected_return_date || '—'}<br>
+        Out: ${c.checkout_date} &middot; Expected: ${c.expected_return_date || '\u2014'}<br>
         ${c.return_date ? 'Returned: ' + c.return_date : ''}
         ${c.notes ? '<br>Notes: ' + c.notes : ''}
       </div>
@@ -502,7 +578,7 @@ function switchTab(tabEl, contentId) {
   document.getElementById(contentId).classList.add('active');
 }
 
-// ============ CHECKOUT FORM ============
+// ============ LEGACY CHECKOUT FORM (single item) ============
 
 function renderCheckoutForm(data) {
   const item = data?.item;
@@ -561,7 +637,7 @@ async function submitCheckout() {
   }
 }
 
-// ============ CHECK IN ============
+// ============ LEGACY CHECK IN (single item) ============
 
 function renderCheckinScreen(data) {
   const container = document.getElementById('checkin-content');
@@ -634,7 +710,7 @@ function renderCheckinItem(result, container) {
       <div class="detail-field"><span class="field-label">Client</span><span class="field-value">${activeCheckout.client_name}</span></div>
       <div class="detail-field"><span class="field-label">Checked out by</span><span class="field-value">${activeCheckout.staff_name}</span></div>
       <div class="detail-field"><span class="field-label">Checkout Date</span><span class="field-value">${activeCheckout.checkout_date}</span></div>
-      <div class="detail-field"><span class="field-label">Expected Return</span><span class="field-value">${activeCheckout.expected_return_date || '—'}</span></div>
+      <div class="detail-field"><span class="field-label">Expected Return</span><span class="field-value">${activeCheckout.expected_return_date || '\u2014'}</span></div>
     </div>
 
     <div class="form-group">
@@ -680,6 +756,434 @@ async function submitCheckin() {
     navigate('item-detail', { id: itemId });
   } catch (e) {
     Toast.show(e.message, 'error');
+  }
+}
+
+// ============ EVENTS LIST ============
+
+async function renderEventsList() {
+  const list = document.getElementById('events-list');
+  list.innerHTML = '<div class="loading-overlay"><span class="spinner"></span> Loading...</div>';
+
+  try {
+    const events = await API.getEventCheckouts();
+    AppState.events = events;
+
+    // Apply filter
+    let filtered = events;
+    if (AppState.eventsFilter && AppState.eventsFilter !== 'all') {
+      filtered = events.filter(e => e.status === AppState.eventsFilter);
+    }
+
+    if (!filtered.length) {
+      list.innerHTML = '<div class="empty-state"><div class="empty-icon">&#128197;</div><p>No events found</p></div>';
+      return;
+    }
+
+    list.innerHTML = filtered.map(evt => `
+      <div class="event-card" onclick="navigate('event-detail', {event_id: '${evt.event_id}'})">
+        <div class="event-header">
+          <span class="event-name">${evt.client_name || 'Unnamed Event'}</span>
+          ${getEventStatusBadge(evt.status)}
+        </div>
+        <div class="event-meta">
+          <span>${evt.checkout_date || '\u2014'}</span> &middot;
+          <span>By ${evt.staff_name || '\u2014'}</span>
+        </div>
+        <div class="event-items-count">
+          &#128230; ${evt.item_count} item${evt.item_count !== 1 ? 's' : ''}
+          ${evt.status === 'Partial' ? ` (${evt.returned_count}/${evt.total_items} returned)` : ''}
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    list.innerHTML = `<div class="empty-state"><div class="empty-icon">&#9888;</div><p>${e.message}</p></div>`;
+  }
+}
+
+function filterEvents(status) {
+  AppState.eventsFilter = status;
+  // Update filter chips
+  document.querySelectorAll('#events-filter-bar .filter-chip').forEach(chip => {
+    chip.classList.toggle('active', chip.dataset.value === status);
+  });
+  renderEventsList();
+}
+
+// ============ NEW EVENT CHECKOUT ============
+
+async function renderNewCheckoutForm() {
+  const container = document.getElementById('new-checkout-content');
+  container.innerHTML = '<div class="loading-overlay"><span class="spinner"></span> Loading items...</div>';
+
+  try {
+    const items = await API.getItemsWithAvailability();
+    const availableItems = items.filter(i => (i.availableQty || 0) > 0);
+    AppState.newCheckoutItems = [];
+
+    const today = new Date().toISOString().split('T')[0];
+
+    container.innerHTML = `
+      <div class="form-group">
+        <label>Event / Client Name</label>
+        <input type="text" class="form-control" id="nco-event-name" placeholder="e.g. Wedding Reception - Karma">
+      </div>
+      <div class="form-group">
+        <label>Date of Event</label>
+        <input type="date" class="form-control" id="nco-event-date" value="${today}">
+      </div>
+      <div class="form-group">
+        <label>Checked Out By</label>
+        <input type="text" class="form-control" id="nco-staff" value="${AppState.currentUser?.name || ''}" readonly>
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea class="form-control" id="nco-notes" placeholder="Optional notes..."></textarea>
+      </div>
+
+      <div class="section-title">Select Items</div>
+      <div class="search-bar">
+        <input type="text" class="form-control" id="nco-item-search" placeholder="Search items..." oninput="filterCheckoutItems()">
+      </div>
+
+      <div class="checkout-item-selector" id="nco-item-list">
+        ${availableItems.map(item => `
+          <div class="checkout-item-row" id="nco-row-${item.id}" data-name="${(item.name || '').toLowerCase()}" data-category="${(item.category || '').toLowerCase()}">
+            <div class="item-icon ${getCategoryClass(item.category)}" style="width:36px; height:36px; border-radius:8px; font-size:16px; display:flex; align-items:center; justify-content:center; flex-shrink:0">${getCategoryIcon(item.category)}</div>
+            <div class="ci-info">
+              <div class="ci-name">${item.name}</div>
+              <div class="ci-meta">${item.category} &middot; ${item.availableQty} available</div>
+            </div>
+            <input type="number" class="ci-qty-input" id="nco-qty-${item.id}"
+              min="0" max="${item.availableQty}" value="0"
+              data-item-id="${item.id}" data-item-name="${item.name}" data-max="${item.availableQty}"
+              onchange="updateCheckoutSelection(this)" oninput="updateCheckoutSelection(this)">
+          </div>
+        `).join('')}
+      </div>
+
+      <div class="selected-summary" id="nco-summary" style="display:none">
+        <div class="ss-title">Selected Items</div>
+        <div id="nco-summary-items"></div>
+      </div>
+
+      <button class="btn btn-primary btn-block" id="nco-submit-btn" onclick="submitEventCheckout()" disabled>
+        &#128228; Create Event Checkout
+      </button>
+    `;
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">&#9888;</div><p>${e.message}</p></div>`;
+  }
+}
+
+function filterCheckoutItems() {
+  const search = document.getElementById('nco-item-search').value.toLowerCase();
+  document.querySelectorAll('#nco-item-list .checkout-item-row').forEach(row => {
+    const name = row.dataset.name || '';
+    const category = row.dataset.category || '';
+    const matches = name.includes(search) || category.includes(search);
+    row.style.display = matches ? 'flex' : 'none';
+  });
+}
+
+function updateCheckoutSelection(input) {
+  const itemId = input.dataset.itemId;
+  const itemName = input.dataset.itemName;
+  const max = parseInt(input.dataset.max) || 0;
+  let qty = parseInt(input.value) || 0;
+
+  // Clamp to valid range
+  if (qty < 0) qty = 0;
+  if (qty > max) qty = max;
+  input.value = qty;
+
+  // Update row highlight
+  const row = document.getElementById('nco-row-' + itemId);
+  if (row) row.classList.toggle('selected', qty > 0);
+
+  // Update state
+  const idx = AppState.newCheckoutItems.findIndex(i => i.item_id === itemId);
+  if (qty > 0) {
+    if (idx >= 0) {
+      AppState.newCheckoutItems[idx].quantity_out = qty;
+    } else {
+      AppState.newCheckoutItems.push({ item_id: itemId, item_name: itemName, quantity_out: qty });
+    }
+  } else if (idx >= 0) {
+    AppState.newCheckoutItems.splice(idx, 1);
+  }
+
+  // Update summary
+  const summary = document.getElementById('nco-summary');
+  const summaryItems = document.getElementById('nco-summary-items');
+  const submitBtn = document.getElementById('nco-submit-btn');
+
+  if (AppState.newCheckoutItems.length > 0) {
+    summary.style.display = 'block';
+    summaryItems.innerHTML = AppState.newCheckoutItems.map(i =>
+      `<div class="ss-item"><span>${i.item_name}</span><span class="ss-qty">x${i.quantity_out}</span></div>`
+    ).join('');
+    submitBtn.disabled = false;
+  } else {
+    summary.style.display = 'none';
+    summaryItems.innerHTML = '';
+    submitBtn.disabled = true;
+  }
+}
+
+async function submitEventCheckout() {
+  const eventName = document.getElementById('nco-event-name').value.trim();
+  if (!eventName) {
+    Toast.show('Event / client name is required', 'warning');
+    return;
+  }
+  if (!AppState.newCheckoutItems.length) {
+    Toast.show('Select at least one item', 'warning');
+    return;
+  }
+
+  const btn = document.getElementById('nco-submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner" style="width:18px;height:18px;border-width:2px"></span> Creating...';
+
+  try {
+    const result = await API.addEventCheckout({
+      client_name: eventName,
+      checkout_date: document.getElementById('nco-event-date').value,
+      expected_return_date: document.getElementById('nco-event-date').value,
+      staff_name: document.getElementById('nco-staff').value,
+      notes: document.getElementById('nco-notes').value,
+      items: AppState.newCheckoutItems
+    });
+    Toast.show('Event checkout created!', 'success');
+    navigate('event-detail', { event_id: result.event_id });
+  } catch (e) {
+    Toast.show(e.message, 'error');
+    btn.disabled = false;
+    btn.innerHTML = '&#128228; Create Event Checkout';
+  }
+}
+
+// ============ EVENT DETAIL ============
+
+async function renderEventDetail(data) {
+  const container = document.getElementById('event-detail-content');
+  container.innerHTML = '<div class="loading-overlay"><span class="spinner"></span> Loading...</div>';
+
+  try {
+    const evt = await API.getEventDetail({ event_id: data.event_id });
+    AppState.currentEvent = evt;
+
+    const canCheckin = evt.status === 'Active' || evt.status === 'Partial';
+
+    container.innerHTML = `
+      <div class="event-detail-header">
+        <div class="ed-name">${evt.client_name || 'Unnamed Event'}</div>
+        <div class="ed-meta">
+          ${evt.checkout_date || ''} &middot; By ${evt.staff_name || '\u2014'}
+          ${evt.expected_return_date ? ' &middot; Return: ' + evt.expected_return_date : ''}
+        </div>
+        ${getEventStatusBadge(evt.status)}
+        <div style="margin-top:8px; font-size:13px; color:var(--text-secondary)">
+          ${evt.returned_count}/${evt.total_items} items returned
+        </div>
+        ${evt.notes ? `<div style="margin-top:8px; font-size:13px; color:var(--text-secondary)">Notes: ${evt.notes}</div>` : ''}
+      </div>
+
+      <div class="section-title">Items (${evt.items.length})</div>
+      <div class="event-detail-items">
+        ${evt.items.map(item => `
+          <div class="edi-row">
+            <div class="edi-name">${item.item_name}</div>
+            <div class="edi-qty">x${item.quantity_out || 1}</div>
+            ${getCheckoutItemBadge(item)}
+          </div>
+        `).join('')}
+      </div>
+
+      <div style="margin-top:20px">
+        ${canCheckin ? `
+          <button class="btn btn-success btn-block" onclick="navigate('event-checkin', {event_id: '${evt.event_id}'})">
+            &#9989; Check In Items
+          </button>
+        ` : ''}
+        <button class="btn btn-secondary btn-block" onclick="printEventManifest()" style="margin-top:8px">
+          &#128424; Print Manifest
+        </button>
+      </div>
+    `;
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">&#9888;</div><p>${e.message}</p></div>`;
+  }
+}
+
+function getCheckoutItemBadge(item) {
+  if (item.status === 'Returned') {
+    const dispMap = {
+      'returned': '<span class="badge badge-returned">Returned</span>',
+      'damaged': '<span class="badge badge-overdue">Damaged</span>',
+      'missing': '<span class="badge badge-overdue">Missing</span>',
+      'sent_to_event': '<span class="badge badge-active">Redirected</span>'
+    };
+    return dispMap[item.disposition] || '<span class="badge badge-returned">Returned</span>';
+  }
+  return '<span class="badge badge-checked-out">Out</span>';
+}
+
+function printEventManifest() {
+  const screen = document.getElementById('screen-event-detail');
+  screen.classList.add('print-active');
+  window.print();
+  screen.classList.remove('print-active');
+}
+
+// ============ EVENT CHECK-IN ============
+
+async function renderEventCheckin(data) {
+  const container = document.getElementById('event-checkin-content');
+  container.innerHTML = '<div class="loading-overlay"><span class="spinner"></span> Loading...</div>';
+
+  try {
+    const evt = await API.getEventDetail({ event_id: data.event_id });
+    AppState.currentEvent = evt;
+
+    // Only show items that haven't been returned yet
+    const unreturned = evt.items.filter(i => i.status !== 'Returned');
+
+    if (!unreturned.length) {
+      container.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9989;</div><p>All items have been returned</p></div>';
+      return;
+    }
+
+    // Get active events for "sent to event" dropdown
+    let activeEvents = [];
+    try {
+      activeEvents = await API.getEventCheckouts({ status: 'Active' });
+      activeEvents = activeEvents.filter(e => e.event_id !== data.event_id);
+    } catch (e) {}
+
+    container.innerHTML = `
+      <div class="card" style="margin-bottom:16px">
+        <h3 style="color:var(--text-heading); margin-bottom:4px">${evt.client_name}</h3>
+        <div style="font-size:13px; color:var(--text-secondary)">${evt.checkout_date} &middot; ${unreturned.length} item${unreturned.length !== 1 ? 's' : ''} to check in</div>
+      </div>
+
+      <div id="checkin-items-list">
+        ${unreturned.map((item, idx) => `
+          <div class="checkin-item unresolved" id="ci-item-${idx}" data-row-id="${item.id}">
+            <div class="ci-header">
+              <span class="ci-item-name">${item.item_name}</span>
+              <span class="ci-item-qty">x${item.quantity_out || 1}</span>
+            </div>
+            <div class="disposition-group">
+              <button class="disposition-btn" onclick="setDisposition(${idx}, 'returned', this)" data-disp="returned">
+                &#9989; Returned
+              </button>
+              <button class="disposition-btn" onclick="setDisposition(${idx}, 'damaged', this)" data-disp="damaged">
+                &#9888; Damaged
+              </button>
+              <button class="disposition-btn" onclick="setDisposition(${idx}, 'missing', this)" data-disp="missing">
+                &#10060; Missing
+              </button>
+              <button class="disposition-btn" onclick="setDisposition(${idx}, 'sent_to_event', this)" data-disp="sent_to_event">
+                &#128257; Sent to Event
+              </button>
+            </div>
+            <div id="ci-dest-${idx}" style="display:none">
+              <select class="dest-event-input" id="ci-dest-select-${idx}">
+                <option value="">Select destination event...</option>
+                ${activeEvents.map(ae => `<option value="${ae.event_id}">${ae.client_name}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+
+      <button class="btn btn-success btn-block" id="ci-submit-btn" onclick="submitEventCheckin('${data.event_id}')" disabled style="margin-top:16px">
+        &#9989; Save Check-In (resolve all items first)
+      </button>
+    `;
+
+    // Store disposition state
+    window._checkinDispositions = unreturned.map(() => null);
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">&#9888;</div><p>${e.message}</p></div>`;
+  }
+}
+
+function setDisposition(idx, disposition, btnEl) {
+  // Update button states
+  const itemEl = document.getElementById('ci-item-' + idx);
+  itemEl.querySelectorAll('.disposition-btn').forEach(b => {
+    b.className = 'disposition-btn';
+  });
+  btnEl.classList.add('active-' + disposition);
+
+  // Show/hide destination event selector
+  const destEl = document.getElementById('ci-dest-' + idx);
+  destEl.style.display = disposition === 'sent_to_event' ? 'block' : 'none';
+
+  // Mark as resolved
+  itemEl.classList.remove('unresolved');
+  itemEl.classList.add('resolved');
+
+  // Store disposition
+  window._checkinDispositions[idx] = disposition;
+
+  // Check if all resolved
+  const allResolved = window._checkinDispositions.every(d => d !== null);
+  const submitBtn = document.getElementById('ci-submit-btn');
+  submitBtn.disabled = !allResolved;
+  submitBtn.textContent = allResolved ? '\u2705 Save Check-In' : '\u2705 Save Check-In (resolve all items first)';
+}
+
+async function submitEventCheckin(eventId) {
+  const evt = AppState.currentEvent;
+  const unreturned = evt.items.filter(i => i.status !== 'Returned');
+
+  const checkinItems = unreturned.map((item, idx) => {
+    const disposition = window._checkinDispositions[idx];
+    const result = {
+      checkout_row_id: item.id,
+      disposition: disposition,
+      quantity: item.quantity_out || 1
+    };
+
+    if (disposition === 'sent_to_event') {
+      const destSelect = document.getElementById('ci-dest-select-' + idx);
+      result.destination_event_id = destSelect?.value || '';
+      const selectedOption = destSelect?.options[destSelect.selectedIndex];
+      result.destination_event_name = selectedOption?.text || '';
+    }
+
+    return result;
+  });
+
+  // Validate sent_to_event has destination
+  for (const ci of checkinItems) {
+    if (ci.disposition === 'sent_to_event' && !ci.destination_event_id) {
+      Toast.show('Please select a destination event for redirected items', 'warning');
+      return;
+    }
+  }
+
+  const btn = document.getElementById('ci-submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner" style="width:18px;height:18px;border-width:2px"></span> Saving...';
+
+  try {
+    await API.checkinEvent({
+      event_id: eventId,
+      client_name: evt.client_name,
+      staff_name: AppState.currentUser?.name || '',
+      items: checkinItems
+    });
+    Toast.show('Check-in saved successfully!', 'success');
+    navigate('event-detail', { event_id: eventId });
+  } catch (e) {
+    Toast.show(e.message, 'error');
+    btn.disabled = false;
+    btn.innerHTML = '\u2705 Save Check-In';
   }
 }
 
@@ -1047,7 +1551,7 @@ async function generateReport(type) {
             <tr>${headers.map(h => `<th style="text-align:left; padding:8px; border-bottom:2px solid var(--border); color:var(--gold)">${h}</th>`).join('')}</tr>
           </thead>
           <tbody>
-            ${data.map(row => `<tr>${row.map(cell => `<td style="padding:8px; border-bottom:1px solid var(--border)">${cell || '—'}</td>`).join('')}</tr>`).join('')}
+            ${data.map(row => `<tr>${row.map(cell => `<td style="padding:8px; border-bottom:1px solid var(--border)">${cell || '\u2014'}</td>`).join('')}</tr>`).join('')}
           </tbody>
         </table>
       </div>
@@ -1084,6 +1588,7 @@ async function renderUserManagement() {
           </div>
           <div class="btn-group">
             <button class="btn btn-sm btn-secondary" onclick="showUserForm(${JSON.stringify(u).replace(/"/g, '&quot;')})">Edit</button>
+            <button class="btn btn-sm btn-primary" onclick="showChangePinModal('${u.id}', '${u.name}')">PIN</button>
           </div>
         </div>
       `).join('')}
@@ -1196,13 +1701,142 @@ function saveSettings() {
 
 function initializeRemoteSheets() {
   API.initializeSheets()
-    .then(msg => Toast.show(msg, 'success'))
+    .then(msg => {
+      localStorage.setItem('psb_initialized', 'true');
+      Toast.show(msg, 'success');
+    })
     .catch(e => Toast.show(e.message, 'error'));
+}
+
+// ============ CHANGE PIN (STAFF SELF-SERVICE) ============
+
+function renderChangePinScreen() {
+  const container = document.getElementById('change-pin-content');
+  container.innerHTML = `
+    <div class="card">
+      <div style="text-align:center; margin-bottom:16px">
+        <div class="user-avatar" style="width:64px; height:64px; font-size:24px; margin:0 auto 12px">
+          ${AppState.currentUser?.name?.charAt(0).toUpperCase() || '?'}
+        </div>
+        <h3 style="color:var(--text-heading)">${AppState.currentUser?.name || ''}</h3>
+        <span class="badge badge-${AppState.currentUser?.role}">${AppState.currentUser?.role}</span>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Current PIN</label>
+      <input type="password" class="form-control" id="cp-current-pin" maxlength="4" inputmode="numeric" placeholder="Enter current PIN">
+    </div>
+    <div class="form-group">
+      <label>New PIN</label>
+      <input type="password" class="form-control" id="cp-new-pin" maxlength="4" inputmode="numeric" placeholder="Enter new 4-digit PIN">
+    </div>
+    <div class="form-group">
+      <label>Confirm New PIN</label>
+      <input type="password" class="form-control" id="cp-confirm-pin" maxlength="4" inputmode="numeric" placeholder="Re-enter new PIN">
+    </div>
+    <button class="btn btn-primary btn-block" onclick="submitChangePin()">Save New PIN</button>
+  `;
+}
+
+async function submitChangePin() {
+  const currentPin = document.getElementById('cp-current-pin').value;
+  const newPin = document.getElementById('cp-new-pin').value;
+  const confirmPin = document.getElementById('cp-confirm-pin').value;
+
+  if (!currentPin || currentPin.length !== 4) {
+    Toast.show('Enter your current 4-digit PIN', 'warning');
+    return;
+  }
+  if (!newPin || newPin.length !== 4 || !/^\d{4}$/.test(newPin)) {
+    Toast.show('New PIN must be exactly 4 digits', 'warning');
+    return;
+  }
+  if (newPin !== confirmPin) {
+    Toast.show('New PINs do not match', 'error');
+    return;
+  }
+
+  try {
+    await API.updatePin({
+      userId: AppState.currentUser.id,
+      currentPin: currentPin,
+      newPin: newPin
+    });
+    Toast.show('PIN changed successfully', 'success');
+    document.getElementById('cp-current-pin').value = '';
+    document.getElementById('cp-new-pin').value = '';
+    document.getElementById('cp-confirm-pin').value = '';
+  } catch (e) {
+    Toast.show(e.message, 'error');
+  }
+}
+
+// ============ ADMIN CHANGE PIN MODAL ============
+
+function showChangePinModal(userId, userName) {
+  const modal = document.getElementById('change-pin-modal');
+  document.getElementById('cpm-user-name').textContent = userName;
+  document.getElementById('cpm-user-id').value = userId;
+  document.getElementById('cpm-new-pin').value = '';
+  document.getElementById('cpm-confirm-pin').value = '';
+  modal.classList.add('active');
+}
+
+function hideChangePinModal() {
+  document.getElementById('change-pin-modal').classList.remove('active');
+}
+
+async function submitAdminChangePin() {
+  const userId = document.getElementById('cpm-user-id').value;
+  const newPin = document.getElementById('cpm-new-pin').value;
+  const confirmPin = document.getElementById('cpm-confirm-pin').value;
+
+  if (!newPin || newPin.length !== 4 || !/^\d{4}$/.test(newPin)) {
+    Toast.show('PIN must be exactly 4 digits', 'warning');
+    return;
+  }
+  if (newPin !== confirmPin) {
+    Toast.show('PINs do not match', 'error');
+    return;
+  }
+
+  try {
+    await API.updatePin({ userId, newPin });
+    Toast.show('PIN updated successfully', 'success');
+    hideChangePinModal();
+  } catch (e) {
+    Toast.show(e.message, 'error');
+  }
 }
 
 // ============ INITIALIZATION ============
 
-document.addEventListener('DOMContentLoaded', () => {
+async function checkAndInitialize() {
+  // If already flagged as initialized, skip
+  if (localStorage.getItem('psb_initialized') === 'true') {
+    return true;
+  }
+
+  try {
+    const result = await API.checkInitialized();
+    if (result.initialized) {
+      localStorage.setItem('psb_initialized', 'true');
+      return true;
+    }
+
+    // Not initialized — do it automatically
+    Toast.show('Setting up sheets for first time...', 'info');
+    await API.initializeSheets();
+    localStorage.setItem('psb_initialized', 'true');
+    Toast.show('Setup complete! Default users: Admin (1234), Staff (5678)', 'success', 5000);
+    return true;
+  } catch (e) {
+    // API not configured yet — let user proceed to login where they can configure
+    return false;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
   setupPinInputs();
 
   // Check if already logged in
@@ -1210,6 +1844,7 @@ document.addEventListener('DOMContentLoaded', () => {
     navigate('dashboard');
   } else {
     navigate('login');
+    await checkAndInitialize();
     initLogin();
   }
 
