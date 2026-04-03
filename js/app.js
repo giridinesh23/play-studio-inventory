@@ -1328,6 +1328,25 @@ async function submitItem(isEdit) {
     return;
   }
 
+  // Duplicate check (only for new items)
+  if (!isEdit) {
+    try {
+      const existingItems = await API.getItems();
+      const duplicate = existingItems.find(i =>
+        i.name.toLowerCase() === name.toLowerCase() &&
+        i.category === category
+      );
+      if (duplicate) {
+        const proceed = confirm(
+          `An item named "${name}" already exists in category "${category}".\n\nAdd duplicate anyway?`
+        );
+        if (!proceed) return;
+      }
+    } catch (e) {
+      // If check fails, allow the add to proceed
+    }
+  }
+
   const itemData = {
     name,
     category,

@@ -7,51 +7,54 @@ const Scanner = (() => {
   let html5QrCode = null;
   let isScanning = false;
 
-  function start() {
+  async function start() {
     const readerEl = document.getElementById('scanner-reader');
     if (!readerEl) return;
 
-    // Clean up previous instance
-    stop();
+    // Clean up previous instance — AWAIT completion
+    await stop();
 
     if (typeof Html5Qrcode === 'undefined') {
       Toast.show('Scanner library not loaded', 'error');
       return;
     }
 
-    html5QrCode = new Html5Qrcode('scanner-reader');
+    try {
+      html5QrCode = new Html5Qrcode('scanner-reader');
 
-    html5QrCode.start(
-      { facingMode: 'environment' },
-      {
-        fps: 10,
-        qrbox: { width: 250, height: 100 },
-        aspectRatio: 1.0
-      },
-      onScanSuccess,
-      () => {} // ignore scan failures
-    ).then(() => {
+      await html5QrCode.start(
+        { facingMode: 'environment' },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 100 },
+          aspectRatio: 1.0
+        },
+        onScanSuccess,
+        () => {} // ignore scan failures
+      );
       isScanning = true;
-    }).catch(err => {
+    } catch (err) {
       console.warn('Camera error:', err);
-      Toast.show('Camera access denied. Use manual entry below.', 'warning');
-    });
+      Toast.show('Camera access denied or unavailable. Use manual entry.', 'warning');
+    }
   }
 
-  function stop() {
+  async function stop() {
     if (html5QrCode && isScanning) {
-      html5QrCode.stop().then(() => {
+      try {
+        await html5QrCode.stop();
         html5QrCode.clear();
-        isScanning = false;
-      }).catch(() => {
-        isScanning = false;
-      });
+      } catch (e) {
+        // ignore stop errors
+      }
+      isScanning = false;
     }
+    html5QrCode = null;
   }
 
   async function onScanSuccess(decodedText) {
     // Stop scanning immediately to prevent multiple triggers
-    stop();
+    await stop();
 
     // Vibrate feedback if available
     if (navigator.vibrate) navigator.vibrate(100);
