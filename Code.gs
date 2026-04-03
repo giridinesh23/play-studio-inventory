@@ -20,7 +20,7 @@ const SHEET_NAMES = {
   CHECKIN_LOG: 'CheckInLog'
 };
 
-const ITEM_HEADERS = ['id', 'name', 'category', 'serial_number', 'purchase_date', 'purchase_cost', 'condition', 'quantity', 'barcode', 'notes'];
+const ITEM_HEADERS = ['id', 'name', 'category', 'serial_number', 'purchase_date', 'purchase_cost', 'condition', 'quantity', 'barcode', 'notes', 'photo_url'];
 const CHECKOUT_HEADERS = ['id', 'event_id', 'item_id', 'item_name', 'quantity_out', 'client_name', 'staff_name', 'checkout_date', 'expected_return_date', 'return_date', 'notes', 'status', 'disposition'];
 const MAINTENANCE_HEADERS = ['id', 'item_id', 'item_name', 'issue', 'logged_by', 'date_logged', 'date_resolved', 'status', 'notes'];
 const USER_HEADERS = ['id', 'name', 'role', 'pin', 'active'];
@@ -82,6 +82,9 @@ function handleRequest(e) {
       getEventDetail: () => getEventDetail(allParams),
       addEventCheckout: () => addEventCheckout(allParams),
       checkinEvent: () => checkinEvent(allParams),
+
+      // Photo upload
+      uploadPhoto: () => uploadPhoto(allParams),
 
       // Maintenance
       getMaintenanceLogs: () => getMaintenanceLogs(allParams),
@@ -282,7 +285,8 @@ function addItem(params) {
       params.condition || 'Available',
       params.quantity || 1,
       barcode,
-      params.notes || ''
+      params.notes || '',
+      params.photo_url || ''
     ];
 
     sheet.appendRow(row);
@@ -326,6 +330,55 @@ function updateItem(params) {
     ITEM_HEADERS.forEach((h, i) => item[h] = updatedRow[i]);
 
     return { success: true, data: item };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function uploadPhoto(params) {
+  if (!params.item_id || !params.photo_data) {
+    return { success: false, error: 'Missing item_id or photo_data' };
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    // Find item
+    const rowIndex = findRowIndex(SHEET_NAMES.ITEMS, params.item_id);
+    if (rowIndex === -1) {
+      return { success: false, error: 'Item not found' };
+    }
+
+    // Decode base64 image
+    const base64 = params.photo_data.replace(/^data:image\/\w+;base64,/, '');
+    const blob = Utilities.newBlob(Utilities.base64Decode(base64), params.mime_type || 'image/jpeg', params.file_name || 'item_photo.jpg');
+
+    // Get or create Photos folder in Drive
+    const folders = DriveApp.getFoldersByName('PlayStudio_Inventory_Photos');
+    const folder = folders.hasNext() ? folders.next() : DriveApp.createFolder('PlayStudio_Inventory_Photos');
+
+    // Delete old photo if exists
+    const sheet = getSheet(SHEET_NAMES.ITEMS);
+    const photoUrlCol = ITEM_HEADERS.indexOf('photo_url') + 1;
+    const oldUrl = sheet.getRange(rowIndex, photoUrlCol).getValue();
+    if (oldUrl) {
+      try {
+        const oldFileId = oldUrl.match(/[-\w]{25,}/);
+        if (oldFileId) DriveApp.getFileById(oldFileId[0]).setTrashed(true);
+      } catch (e) { /* old file may not exist */ }
+    }
+
+    // Save new photo
+    const file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const fileId = file.getId();
+    const photoUrl = 'https://drive.google.com/thumbnail?id=' + fileId + '&sz=w800';
+
+    // Update item row
+    sheet.getRange(rowIndex, photoUrlCol).setValue(photoUrl);
+
+    return { success: true, data: { photo_url: photoUrl } };
   } finally {
     lock.releaseLock();
   }

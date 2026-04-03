@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ps-inventory-v2';
+const CACHE_NAME = 'ps-inventory-v3';
 const ASSETS = [
   '/',
   '/index.html',

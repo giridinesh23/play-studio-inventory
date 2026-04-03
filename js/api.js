@@ -214,6 +214,17 @@ const API = (() => {
     return await request('checkInitialized');
   }
 
+  // ============ Photo Upload ============
+
+  async function uploadPhoto(itemId, base64Data, mimeType, fileName) {
+    return await request('uploadPhoto', {
+      item_id: itemId,
+      photo_data: base64Data,
+      mime_type: mimeType || 'image/jpeg',
+      file_name: fileName || 'item_photo.jpg'
+    });
+  }
+
   // ============ PIN Management ============
 
   async function updatePin(data) {
@@ -245,6 +256,7 @@ const API = (() => {
     addMaintenanceLog,
     resolveMaintenance,
     getDashboardStats,
+    uploadPhoto,
     initializeSheets,
     checkInitialized,
     updatePin

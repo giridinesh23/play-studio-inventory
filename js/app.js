@@ -157,6 +157,25 @@ async function loadScreenData(screen, data) {
   }
 }
 
+// ============ FILE HELPERS ============
+
+function openPhotoFullscreen(src) {
+  const overlay = document.createElement('div');
+  overlay.className = 'photo-fullscreen-overlay';
+  overlay.innerHTML = `<img src="${src}"><div class="photo-fullscreen-close">&times;</div>`;
+  overlay.addEventListener('click', () => overlay.remove());
+  document.body.appendChild(overlay);
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 // ============ CATEGORY HELPERS ============
 
 const CATEGORIES = ['Audio', 'Lighting', 'Cables & Accessories', 'Microphones & Stands'];
@@ -438,7 +457,9 @@ function renderInventoryList(items) {
 
     return `
       <div class="item-card${isDimmed ? ' dimmed' : ''}" onclick="navigate('item-detail', {id: '${item.id}'})">
-        <div class="item-icon ${getCategoryClass(item.category)}">${getCategoryIcon(item.category)}</div>
+        ${item.photo_url
+          ? `<img src="${item.photo_url}" class="item-thumb" alt="">`
+          : `<div class="item-icon ${getCategoryClass(item.category)}">${getCategoryIcon(item.category)}</div>`}
         <div class="item-info">
           <div class="item-name">${item.name}</div>
           <div class="item-meta">${item.category} &middot; ${item.barcode}</div>
@@ -491,6 +512,7 @@ async function renderItemDetail(data) {
     const isAdmin = AppState.currentUser?.role === 'admin';
 
     container.innerHTML = `
+      ${item.photo_url ? `<div class="item-photo-detail"><img src="${item.photo_url}" alt="${item.name}" onclick="openPhotoFullscreen(this.src)"></div>` : ''}
       <div class="detail-header">
         <div class="detail-icon ${getCategoryClass(item.category)}" style="display:inline-flex">${getCategoryIcon(item.category)}</div>
         <h2>${item.name}</h2>
@@ -1304,6 +1326,14 @@ async function renderAddEditItem(data) {
     </div>
     <div id="barcode-preview" class="barcode-container" style="margin-bottom:16px"></div>
     <div class="form-group">
+      <label>Item Photo</label>
+      <div class="photo-upload-area" id="photo-upload-area">
+        ${item?.photo_url ? `<img src="${item.photo_url}" class="photo-preview-img" id="photo-preview-img">` : `<div class="photo-placeholder" id="photo-placeholder">&#128247; Tap to add photo</div>`}
+        <input type="file" accept="image/*" capture="environment" id="item-form-photo" style="display:none" onchange="previewItemPhoto(this)">
+      </div>
+      ${item?.photo_url ? `<button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="removeItemPhoto()">&#128465; Remove Photo</button>` : ''}
+    </div>
+    <div class="form-group">
       <label>Notes</label>
       <textarea class="form-control" id="item-form-notes" placeholder="Additional notes...">${item?.notes || ''}</textarea>
     </div>
@@ -1317,6 +1347,59 @@ async function renderAddEditItem(data) {
   if (barcode && typeof JsBarcode !== 'undefined') {
     setTimeout(() => BarcodeUtil.renderPreview('barcode-preview', barcode, item?.name || 'New Item'), 100);
   }
+
+  // Click handler for photo upload area
+  setTimeout(() => {
+    const area = document.getElementById('photo-upload-area');
+    if (area) {
+      area.addEventListener('click', () => {
+        document.getElementById('item-form-photo').click();
+      });
+    }
+  }, 100);
+}
+
+function previewItemPhoto(input) {
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  if (file.size > 5 * 1024 * 1024) {
+    Toast.show('Photo must be under 5MB', 'warning');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const area = document.getElementById('photo-upload-area');
+    const placeholder = document.getElementById('photo-placeholder');
+    if (placeholder) placeholder.remove();
+    let img = document.getElementById('photo-preview-img');
+    if (!img) {
+      img = document.createElement('img');
+      img.id = 'photo-preview-img';
+      img.className = 'photo-preview-img';
+      area.insertBefore(img, area.firstChild);
+    }
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeItemPhoto() {
+  const area = document.getElementById('photo-upload-area');
+  const img = document.getElementById('photo-preview-img');
+  if (img) img.remove();
+  let placeholder = document.getElementById('photo-placeholder');
+  if (!placeholder) {
+    placeholder = document.createElement('div');
+    placeholder.id = 'photo-placeholder';
+    placeholder.className = 'photo-placeholder';
+    placeholder.innerHTML = '&#128247; Tap to add photo';
+    area.insertBefore(placeholder, area.firstChild);
+  }
+  const input = document.getElementById('item-form-photo');
+  if (input) input.value = '';
+  // Mark for removal
+  area.dataset.removePhoto = 'true';
 }
 
 async function submitItem(isEdit) {
@@ -1360,16 +1443,39 @@ async function submitItem(isEdit) {
   };
 
   try {
+    let itemId;
     if (isEdit) {
       itemData.id = document.getElementById('item-form-id').value;
       await API.updateItem(itemData);
+      itemId = itemData.id;
       Toast.show('Item updated', 'success');
-      navigate('item-detail', { id: itemData.id });
     } else {
       const newItem = await API.addItem(itemData);
+      itemId = newItem.id;
       Toast.show('Item added', 'success');
-      navigate('item-detail', { id: newItem.id });
     }
+
+    // Upload photo if one was selected
+    const photoInput = document.getElementById('item-form-photo');
+    const removePhoto = document.getElementById('photo-upload-area')?.dataset.removePhoto === 'true';
+    if (photoInput?.files?.length > 0) {
+      Toast.show('Uploading photo...', 'info');
+      try {
+        const file = photoInput.files[0];
+        const base64 = await fileToBase64(file);
+        await API.uploadPhoto(itemId, base64, file.type, file.name);
+        Toast.show('Photo uploaded', 'success');
+      } catch (photoErr) {
+        Toast.show('Item saved but photo upload failed: ' + photoErr.message, 'warning');
+      }
+    } else if (removePhoto && isEdit) {
+      // Clear photo URL on the item
+      try {
+        await API.updateItem({ id: itemId, photo_url: '' });
+      } catch (e) { /* ignore */ }
+    }
+
+    navigate('item-detail', { id: itemId });
   } catch (e) {
     Toast.show(e.message, 'error');
   }
